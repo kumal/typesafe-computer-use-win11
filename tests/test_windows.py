@@ -102,8 +102,10 @@ def test_a_browser_is_reported_by_its_product_name():
     [
         "Address and search bar",  # Chrome and Edge, English
         "Adress- und Suchleiste",  # Chrome and Edge, German
-        "Search or enter address",  # Firefox, English
-        "Suchen oder Adresse eingeben",  # Firefox, German
+        "Search with Google or enter address",  # Firefox, English, with its search engine
+        "Search or enter address",  # Firefox without one
+        "Mit Google suchen oder Adresse eingeben",  # Firefox, German, as read off a real one
+        "Suchen oder Adresse eingeben",
         "address and search bar",
     ],
 )
@@ -112,9 +114,63 @@ def test_the_address_bar_is_found_by_its_name_in_each_browser_and_language(name)
     assert re.match(windows.ADDRESS_BAR_NAME, name)
 
 
-@pytest.mark.parametrize("name", ["Email address", "Search", "Suchen", "Reading address book", ""])
+@pytest.mark.parametrize(
+    "name", ["Email address", "Search", "Suchen", "Mit Google suchen", "Reading address book", "Enter address book", ""]
+)
 def test_a_field_that_only_mentions_an_address_is_not_the_address_bar(name):
     assert not re.match(windows.ADDRESS_BAR_NAME, name)
+
+
+class _Control:
+    def __init__(self, value=None):
+        self.value = value
+
+    def Exists(self, *_):
+        return self.value is not None
+
+
+def _window_with(edit=None, combo=None):
+    """A browser window as uiautomation shows it: which control kinds carry the address bar's name."""
+    asked = []
+
+    def find(kind, control):
+        def look(**kwargs):
+            asked.append((kind, kwargs["RegexName"]))
+            return control or _Control()
+
+        return look
+
+    window = SimpleNamespace(EditControl=find("edit", edit), ComboBoxControl=find("combo", combo))
+    return window, asked
+
+
+def _browser_url_with(monkeypatch, window):
+    monkeypatch.setattr(windows, "_find_window", lambda app: 1)
+    monkeypatch.setattr(windows, "auto", SimpleNamespace(ControlFromHandle=lambda hwnd: window))
+    monkeypatch.setattr(windows, "_ui_value", lambda control: control.value)
+    return windows.browser_url("Firefox")
+
+
+def test_the_url_comes_from_an_edit_in_chrome_and_edge(monkeypatch):
+    window, asked = _window_with(edit=_Control("example.com/page"))
+    assert _browser_url_with(monkeypatch, window) == "example.com/page"
+    assert asked == [("edit", windows.ADDRESS_BAR_NAME)]
+
+
+def test_the_url_comes_from_a_combo_box_in_firefox(monkeypatch):
+    window, asked = _window_with(combo=_Control("https://example.com/page"))
+    assert _browser_url_with(monkeypatch, window) == "https://example.com/page"
+    assert [kind for kind, _ in asked] == ["edit", "combo"]
+
+
+def test_no_address_bar_has_no_url(monkeypatch):
+    window, _ = _window_with()
+    assert _browser_url_with(monkeypatch, window) is None
+
+
+def test_an_address_bar_without_a_value_has_no_url(monkeypatch):
+    window, _ = _window_with(edit=_Control(""), combo=_Control(""))
+    assert _browser_url_with(monkeypatch, window) is None
 
 
 # ------------------------------------------------------------------ input events

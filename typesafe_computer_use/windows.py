@@ -75,9 +75,11 @@ BROWSER_EXES = {"Google Chrome": "chrome", "Microsoft Edge": "msedge", "Firefox"
 
 # The address bar's accessible name, as a pattern for uiautomation's RegexName, which uses re.match: it
 # must start at the name's first character. Chrome and Edge call it "Address and search bar" ("Adress- und
-# Suchleiste" in German), Firefox "Search or enter address" ("Suchen oder Adresse eingeben"). A bare
-# "address" elsewhere in the name, as in a page's "Email address" field, is not the address bar.
-ADDRESS_BAR_NAME = r"(?i)(add?ress\b|(search or enter|suchen oder) add?ress)"
+# Suchleiste" in German). Firefox puts its search engine in the middle: "Search with Google or enter
+# address", in German "Mit Google suchen oder Adresse eingeben" (the latter read off a real Firefox).
+# A bare "address" elsewhere in the name, as in a page's "Email address" field, is not the address bar,
+# and neither is Firefox's separate search field, "Suchen".
+ADDRESS_BAR_NAME = r"(?i)(add?ress\b|.*(or enter add?resse?|oder add?resse? eingeben))"
 
 # Virtual keys for the keys the actions press. macOS's Command becomes Control, except Command-[,
 # a browser's Back, which is Alt-Left on Windows.
@@ -383,17 +385,18 @@ def open_url(browser: str, url: str) -> bool:
 
 def browser_url(browser: str) -> str | None:
     """The address bar's text, read through UI Automation. No AppleScript-style API exists for this
-    on Windows, so it depends on the browser exposing an Edit control named for the address bar,
-    which Chrome, Edge, and Firefox do. Chrome and Edge show it without the scheme."""
+    on Windows, so it depends on the browser exposing a control named for the address bar: an Edit
+    in Chrome and Edge, a combo box in Firefox. Chrome and Edge show it without the scheme."""
     hwnd = _find_window(browser)
     if hwnd is None:
         return None
     try:
         window = auto.ControlFromHandle(hwnd)
-        edit = window.EditControl(searchDepth=20, RegexName=ADDRESS_BAR_NAME)
-        if not edit.Exists(0, 0):
-            return None
-        return _ui_value(edit) or None
+        for find in (window.EditControl, window.ComboBoxControl):
+            bar = find(searchDepth=20, RegexName=ADDRESS_BAR_NAME)
+            if bar.Exists(0, 0) and (url := _ui_value(bar)):
+                return url
+        return None
     except Exception:
         return None
 
