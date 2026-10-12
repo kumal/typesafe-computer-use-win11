@@ -14,6 +14,7 @@ from __future__ import annotations
 import ctypes
 import functools
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -80,6 +81,9 @@ BROWSER_EXES = {"Google Chrome": "chrome", "Microsoft Edge": "msedge", "Firefox"
 # A bare "address" elsewhere in the name, as in a page's "Email address" field, is not the address bar,
 # and neither is Firefox's separate search field, "Suchen".
 ADDRESS_BAR_NAME = r"(?i)(add?ress\b|.*(or enter add?resse?|oder add?resse? eingeben))"
+_ADDRESS_BAR = re.compile(ADDRESS_BAR_NAME)
+ADDRESS_BAR_CONTROLS = ("EditControl", "ComboBoxControl")  # Chrome and Edge, Firefox
+ADDRESS_BAR_SEARCH_DEPTH = 20  # Firefox's bar sits at depth 3, below its window and toolbar
 
 # A browser that has not been asked about its controls for a while shows no address bar for the first
 # ten seconds or so of queries (a real Firefox: four searches over 10 s found nothing, the fifth found it
@@ -402,17 +406,15 @@ def open_url(browser: str, url: str) -> bool:
 
 
 def _read_address_bar(window) -> tuple[bool, str | None]:
-    """One search of a browser window: whether an address bar was found, and its text when that
-    can be a page's URL. An Edit in Chrome and Edge, a combo box in Firefox."""
-    found = False
-    for find in (window.EditControl, window.ComboBoxControl):
-        bar = find(searchDepth=20, RegexName=ADDRESS_BAR_NAME)
-        if bar.Exists(0, 0):
-            found = True
-            text = (_ui_value(bar) or "").strip()
-            if is_url_text(text):
-                return True, text
-    return found, None
+    """One walk of a browser window: whether an address bar was found, and its text when that can
+    be a page's URL. It stops at the first Edit or combo box named like the bar, which the browser's
+    toolbar puts ahead of the page: a search per control type would walk a whole page (a few
+    seconds) for the type the browser does not use."""
+    for control, _ in auto.WalkControl(window, maxDepth=ADDRESS_BAR_SEARCH_DEPTH):
+        if control.ControlTypeName in ADDRESS_BAR_CONTROLS and _ADDRESS_BAR.match(control.Name or ""):
+            text = (_ui_value(control) or "").strip()
+            return True, text if is_url_text(text) else None
+    return False, None
 
 
 def browser_url(browser: str) -> str | None:

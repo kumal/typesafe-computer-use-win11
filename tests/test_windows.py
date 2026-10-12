@@ -121,37 +121,57 @@ def test_a_field_that_only_mentions_an_address_is_not_the_address_bar(name):
     assert not re.match(windows.ADDRESS_BAR_NAME, name)
 
 
-class _Control:
-    def __init__(self, value=None):
+FIREFOX_BAR_NAME = "Mit Google suchen oder Adresse eingeben"  # read off a real German Firefox
+CHROME_BAR_NAME = "Address and search bar"
+
+
+class _Node:
+    """A control as a tree walk yields it: its type name, its accessible name, and its value."""
+
+    def __init__(self, kind, name, value=None):
+        self.ControlTypeName = kind
+        self.Name = name
         self.value = value
 
-    def Exists(self, *_):
-        return self.value is not None
+
+def _combo(value, name=FIREFOX_BAR_NAME):
+    return _Node("ComboBoxControl", name, value)
 
 
-def _window_with(edit=None, combo=None):
-    """A browser window as uiautomation shows it: which control kinds carry the address bar's name."""
-    asked = []
-
-    def find(kind, control):
-        def look(**kwargs):
-            asked.append((kind, kwargs["RegexName"]))
-            return control or _Control()
-
-        return look
-
-    window = SimpleNamespace(EditControl=find("edit", edit), ComboBoxControl=find("combo", combo))
-    return window, asked
+def _edit(value, name=CHROME_BAR_NAME):
+    return _Node("EditControl", name, value)
 
 
-def _browser_url_with(monkeypatch, window, first_read=False):
-    """windows.browser_url against a fake window. By default the process has read once already, so
-    the read searches once; `first_read` is the process's first, which waits for the bar."""
+class _Walker:
+    """Stands in for uiautomation.WalkControl over a fake window. `tree` is the controls a walk yields,
+    or a function of the walk's number (from 1) for a browser whose tree fills in over time."""
+
+    def __init__(self, tree):
+        self.tree = tree
+        self.walks = 0
+        self.seen = []
+        self.depths = []
+        self.url = None
+
+    def __call__(self, window, includeTop=False, maxDepth=0):
+        self.walks += 1
+        self.depths.append(maxDepth)
+        for node in self.tree(self.walks) if callable(self.tree) else self.tree:
+            self.seen.append(node)
+            yield node, 3
+
+
+def _browser_url_with(monkeypatch, tree, first_read=False):
+    """windows.browser_url against a fake Firefox window; the walker it walked comes back with the
+    URL on it. By default the process has read once already, so the read walks once; `first_read` is
+    the process's first, which waits for the bar."""
+    walker = _Walker(tree)
     monkeypatch.setattr(windows, "_find_window", lambda app: 1)
-    monkeypatch.setattr(windows, "auto", SimpleNamespace(ControlFromHandle=lambda hwnd: window))
+    monkeypatch.setattr(windows, "auto", SimpleNamespace(ControlFromHandle=lambda hwnd: object(), WalkControl=walker))
     monkeypatch.setattr(windows, "_ui_value", lambda control: control.value)
     monkeypatch.setattr(windows, "_bar_warmup_spent", not first_read)
-    return windows.browser_url("Firefox")
+    walker.url = windows.browser_url("Firefox")
+    return walker
 
 
 class _Clock:
@@ -167,82 +187,84 @@ class _Clock:
         self.now += seconds
 
 
-class _AppearsLater(_Control):
-    """A bar that a cold browser shows only from the n-th search on."""
-
-    def __init__(self, value, after):
-        super().__init__(value)
-        self.after = after
-        self.searches = 0
-
-    def Exists(self, *_):
-        self.searches += 1
-        return self.searches > self.after
+PAGE = [_Node("DocumentControl", "A page", None), _edit("someone@example.com", name="Email address")]
 
 
 def test_the_url_comes_from_an_edit_in_chrome_and_edge(monkeypatch):
-    window, asked = _window_with(edit=_Control("example.com/page"))
-    assert _browser_url_with(monkeypatch, window) == "example.com/page"
-    assert asked == [("edit", windows.ADDRESS_BAR_NAME)]
+    read = _browser_url_with(monkeypatch, [_edit("example.com/page"), *PAGE])
+    assert read.url == "example.com/page"
 
 
 def test_the_url_comes_from_a_combo_box_in_firefox(monkeypatch):
-    window, asked = _window_with(combo=_Control("https://example.com/page"))
-    assert _browser_url_with(monkeypatch, window) == "https://example.com/page"
-    assert [kind for kind, _ in asked] == ["edit", "combo"]
+    read = _browser_url_with(monkeypatch, [_combo("https://example.com/page"), *PAGE])
+    assert read.url == "https://example.com/page"
+
+
+def test_the_walk_stops_at_the_bar_and_does_not_read_the_page(monkeypatch):
+    toolbar = _Node("ToolBarControl", "Navigation")
+    bar = _combo("example.com/page")
+    read = _browser_url_with(monkeypatch, [toolbar, bar, *PAGE])
+    assert read.seen == [toolbar, bar]
+    assert read.walks == 1
+    assert read.depths == [windows.ADDRESS_BAR_SEARCH_DEPTH]
+
+
+def test_a_page_field_that_only_mentions_an_address_is_not_taken_for_the_bar(monkeypatch):
+    read = _browser_url_with(monkeypatch, [*PAGE, _combo("example.com/page")])
+    assert read.url == "example.com/page"
+
+
+def test_the_search_field_next_to_the_bar_is_not_the_bar(monkeypatch):
+    search = _combo("", name="Suchfeld. Du kannst doppelklicken, um einen Suchbegriff einzugeben")
+    assert _browser_url_with(monkeypatch, [search]).url is None
 
 
 def test_no_address_bar_has_no_url(monkeypatch):
-    window, _ = _window_with()
-    assert _browser_url_with(monkeypatch, window) is None
+    assert _browser_url_with(monkeypatch, PAGE).url is None
 
 
 def test_an_address_bar_without_a_value_has_no_url(monkeypatch):
-    window, _ = _window_with(edit=_Control(""), combo=_Control(""))
-    assert _browser_url_with(monkeypatch, window) is None
+    assert _browser_url_with(monkeypatch, [_edit(""), _combo("")]).url is None
 
 
 def test_the_first_read_waits_for_a_cold_browser_to_show_its_address_bar(monkeypatch):
     clock = _Clock()
     monkeypatch.setattr(windows, "time", clock)
-    bar = _AppearsLater("www.temu.com/ch/stuhl", after=3)  # nothing for three searches, then there
-    window, _ = _window_with(combo=bar)
-    assert _browser_url_with(monkeypatch, window, first_read=True) == "www.temu.com/ch/stuhl"
-    assert bar.searches == 4
+    # nothing in the first three walks, then the bar: as a real Firefox that had not been queried
+    read = _browser_url_with(monkeypatch, lambda n: [] if n <= 3 else [_combo("www.temu.com/ch/stuhl")], first_read=True)
+    assert read.url == "www.temu.com/ch/stuhl"
+    assert read.walks == 4
     assert 0 < clock.now < windows.ADDRESS_BAR_WARMUP_SECONDS  # it waited, and stopped when it saw the bar
 
 
 def test_a_first_read_that_never_sees_a_bar_gives_up_after_the_warmup(monkeypatch):
     clock = _Clock()
     monkeypatch.setattr(windows, "time", clock)
-    window, _ = _window_with()
-    assert _browser_url_with(monkeypatch, window, first_read=True) is None
+    assert _browser_url_with(monkeypatch, PAGE, first_read=True).url is None
     assert windows.ADDRESS_BAR_WARMUP_SECONDS <= clock.now < windows.ADDRESS_BAR_WARMUP_SECONDS + 1
 
 
 def test_the_wait_is_spent_once_per_process(monkeypatch):
     clock = _Clock()
     monkeypatch.setattr(windows, "time", clock)
-    window, _ = _window_with()
-    assert _browser_url_with(monkeypatch, window, first_read=True) is None
-    spent = clock.now
+    read = _browser_url_with(monkeypatch, PAGE, first_read=True)
+    spent, walks = clock.now, read.walks
     assert windows.browser_url("Firefox") is None  # a window with no recognised bar, a second time
-    assert clock.now == spent  # one search, no waiting
+    assert clock.now == spent  # no waiting
+    assert read.walks == walks + 1  # one walk
 
 
 def test_a_bar_found_at_once_is_read_without_waiting(monkeypatch):
     clock = _Clock()
     monkeypatch.setattr(windows, "time", clock)
-    window, _ = _window_with(combo=_Control("example.com/page"))
-    assert _browser_url_with(monkeypatch, window, first_read=True) == "example.com/page"
+    assert _browser_url_with(monkeypatch, [_combo("example.com/page")], first_read=True).url == "example.com/page"
     assert clock.now == 0.0
 
 
 def test_a_draft_in_a_found_bar_is_not_waited_for(monkeypatch):
     clock = _Clock()
     monkeypatch.setattr(windows, "time", clock)
-    window, _ = _window_with(combo=_Control("test suche"))
-    assert _browser_url_with(monkeypatch, window, first_read=True) is None
+    assert _browser_url_with(monkeypatch, [_combo("test suche")], first_read=True).url is None
     assert clock.now == 0.0  # the bar was there; its text just is not an address
 
 
@@ -257,26 +279,30 @@ def test_the_escape_hatch_works_while_the_first_read_waits(monkeypatch):
     clock = _Clock()
     monkeypatch.setattr(windows, "time", clock)
     monkeypatch.setattr(windows, "mouse_location", lambda: (0.0, 0.0))  # the abort corner
-    window, _ = _window_with()
     with pytest.raises(windows.Abort):
-        _browser_url_with(monkeypatch, window, first_read=True)
+        _browser_url_with(monkeypatch, PAGE, first_read=True)
+
+
+def test_a_walk_that_raises_reads_as_no_url(monkeypatch):
+    def broken(n):
+        raise OSError("the element went away")
+
+    assert _browser_url_with(monkeypatch, broken).url is None
 
 
 def test_a_draft_in_the_address_bar_is_not_the_pages_url(monkeypatch):
-    window, _ = _window_with(combo=_Control("test suche"))  # read off a real Firefox on a new tab
-    assert _browser_url_with(monkeypatch, window) is None
+    assert _browser_url_with(monkeypatch, [_combo("test suche")]).url is None  # read off a real Firefox on a new tab
 
 
 def test_a_url_read_off_firefox_comes_back_without_the_scheme(monkeypatch):
-    window, _ = _window_with(combo=_Control("www.youtube.com/shorts/F0iPaYngwX4"))  # a real read
-    assert _browser_url_with(monkeypatch, window) == "www.youtube.com/shorts/F0iPaYngwX4"
+    url = "www.youtube.com/shorts/F0iPaYngwX4"  # a real read
+    assert _browser_url_with(monkeypatch, [_combo(url)]).url == url
 
 
 def test_a_url_with_spaces_in_its_query_is_still_the_pages_url(monkeypatch):
     # Firefox shows the address decoded: this is the shape a real Temu page's address bar read back
     url = "www.temu.com/?_p_rfs=1&_x_ns_iradname=Online Tracking Link&_x_ns_irmpname=Firefox Browser - adMarketplace&_x=1"
-    window, _ = _window_with(combo=_Control(url))
-    assert _browser_url_with(monkeypatch, window) == url
+    assert _browser_url_with(monkeypatch, [_combo(url)]).url == url
 
 
 @pytest.mark.parametrize(
