@@ -183,19 +183,31 @@ def test_a_url_read_off_firefox_comes_back_without_the_scheme(monkeypatch):
     assert _browser_url_with(monkeypatch, window) == "www.youtube.com/shorts/F0iPaYngwX4"
 
 
+def test_a_url_with_spaces_in_its_query_is_still_the_pages_url(monkeypatch):
+    # Firefox shows the address decoded: this is the shape a real Temu page's address bar read back
+    url = "www.temu.com/?_p_rfs=1&_x_ns_iradname=Online Tracking Link&_x_ns_irmpname=Firefox Browser - adMarketplace&_x=1"
+    window, _ = _window_with(combo=_Control(url))
+    assert _browser_url_with(monkeypatch, window) == url
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
         ("www.youtube.com/shorts/F0iPaYngwX4", True),
         ("https://example.com/a%20b?q=1#x", True),
         ("about:preferences", True),
-        ("test suche", False),
-        ("example.com/page now", False),
+        ("example.com/my file.html", True),  # decoded %20 in the path
+        ("example.com/?q=Online Tracking Link&x=1", True),  # decoded %20 in the query
+        ("example.com#a section", True),
+        ("test suche", False),  # read off a real Firefox on a new tab
+        ("how to cook rice", False),
+        ("what is 1/2 cup", False),  # a slash after the first word does not make it an address
+        ("example.com now", False),
         ("", False),
         ("   ", False),
     ],
 )
-def test_only_text_without_whitespace_can_be_a_url(text, expected):
+def test_a_url_may_hold_spaces_once_its_host_and_path_have_begun(text, expected):
     assert windows.is_url_text(text) is expected
 
 

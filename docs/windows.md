@@ -21,7 +21,8 @@ No permission prompt is needed. What differs from macOS:
 - A click reads the cursor back first, and refuses to press, ending the run, when the cursor did
   not reach the target (a UAC prompt or the lock screen has the input).
 - The browser URL is read off the address bar, which Chrome, Edge, and Firefox show without the
-  scheme. Text with a space in it is a draft the user is typing and reads as no URL; a one-word
+  scheme, and Firefox decoded (a `%20` is a space). Text whose first word holds no `/`, `?` or `#`
+  but is followed by more words is a draft the user is typing and reads as no URL; a one-word
   draft cannot be told from an address. The bar is found by its accessible name, English or German
   ("Address and search bar", "Adress- und Suchleiste", Firefox's "Search with Google or enter
   address" and "Mit Google suchen oder Adresse eingeben"), as an Edit control in Chrome and Edge

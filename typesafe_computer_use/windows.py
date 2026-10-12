@@ -120,10 +120,13 @@ def pressable(has_invoke: bool, default_action: str) -> bool:
 
 
 def is_url_text(text: str) -> bool:
-    """Whether the address bar's text can be a page's address. A URL has no whitespace (a space is
-    %20), so text with some is a draft the user is typing, not the page. The bar cannot tell a
-    one-word draft from a URL: that stays a limit of reading it off the screen."""
-    return bool(text) and not any(ch.isspace() for ch in text)
+    """Whether the address bar's text can be a page's address and not a draft the user is typing.
+    Firefox shows the address decoded, so a %20 in a query value is a real space there: spaces occur
+    in a URL, but only once its host and path have begun, so the first word holds a "/", "?" or "#".
+    A draft's first word does not. The bar cannot tell a one-word draft from a URL: that stays a
+    limit of reading it off the screen."""
+    words = text.split()
+    return bool(words) and (len(words) == 1 or any(ch in words[0] for ch in "/?#"))
 
 
 def exe_stem(name: str) -> str:
