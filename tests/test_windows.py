@@ -2,6 +2,7 @@
 
 import ctypes
 import re
+from types import SimpleNamespace
 
 import pytest
 
@@ -213,3 +214,37 @@ def test_ocr_lines_box_the_words_and_report_full_confidence():
     }
     assert ocr_lines(result) == [("Sign in", windows.OCR_CONFIDENCE, (10.0, 18.0, 57.0, 34.0))]
     assert windows.OCR_CONFIDENCE == 1.0  # Windows.Media.Ocr reports none
+
+
+def test_ocr_reads_english_unless_told_otherwise(monkeypatch):
+    monkeypatch.delenv("CLICKER_OCR_LANGUAGE", raising=False)
+    assert windows.ocr_language() == "en"
+    assert windows.OCR_LANGUAGE == "en"
+
+
+def test_the_ocr_language_comes_from_the_environment(monkeypatch):
+    monkeypatch.setenv("CLICKER_OCR_LANGUAGE", "de")
+    assert windows.ocr_language() == "de"
+    monkeypatch.setenv("CLICKER_OCR_LANGUAGE", " de-DE \n")
+    assert windows.ocr_language() == "de-DE"  # a stray space from a .env line is not part of the tag
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_a_blank_ocr_language_falls_back_to_the_default(monkeypatch, value):
+    monkeypatch.setenv("CLICKER_OCR_LANGUAGE", value)
+    assert windows.ocr_language() == windows.OCR_LANGUAGE
+
+
+def test_recognition_asks_the_engine_for_the_chosen_language(monkeypatch):
+    asked = []
+
+    def recognize(image, language):
+        asked.append(language)
+        return {"lines": []}
+
+    monkeypatch.setattr(windows, "winocr", SimpleNamespace(recognize_pil_sync=recognize))
+    monkeypatch.delenv("CLICKER_OCR_LANGUAGE", raising=False)
+    assert windows.recognize_text(object()) == []
+    monkeypatch.setenv("CLICKER_OCR_LANGUAGE", "de")
+    assert windows.recognize_text(object()) == []
+    assert asked == ["en", "de"]

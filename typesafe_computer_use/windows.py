@@ -45,6 +45,7 @@ LINES_PER_NOTCH = 3  # the Windows default; the actions ask for lines, as on mac
 
 # Windows.Media.Ocr reads one language per engine and reports no confidence, so every line it returns
 # counts as certain and passes MIN_OCR_CONFIDENCE. The language pack must be installed (see docs/windows.md).
+# OCR_LANGUAGE is the default; CLICKER_OCR_LANGUAGE names another (see ocr_language).
 OCR_LANGUAGE = "en"
 OCR_CONFIDENCE = 1.0
 
@@ -97,6 +98,12 @@ MOUSEEVENTF_WHEEL = 0x0800
 
 
 # ------------------------------------------------------------------ pure rules
+
+
+def ocr_language() -> str:
+    """The language tag OCR reads in: CLICKER_OCR_LANGUAGE, or OCR_LANGUAGE when it is unset or blank.
+    Read at each call, as config.browser() does, so a .env loaded after import still counts."""
+    return os.environ.get("CLICKER_OCR_LANGUAGE", "").strip() or OCR_LANGUAGE
 
 
 def role_for(control_type_name: str) -> str:
@@ -437,7 +444,7 @@ def display_scale(image: Image.Image) -> float:
 
 def recognize_text(image: Image.Image) -> list[tuple[str, float, tuple[float, float, float, float]]]:
     """Windows.Media.Ocr lines as text, confidence, and a box in the image's own pixels."""
-    return ocr_lines(winocr.recognize_pil_sync(image, OCR_LANGUAGE))
+    return ocr_lines(winocr.recognize_pil_sync(image, ocr_language()))
 
 
 def _pattern(element, pattern_id):
