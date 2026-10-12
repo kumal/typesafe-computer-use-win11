@@ -173,6 +173,32 @@ def test_an_address_bar_without_a_value_has_no_url(monkeypatch):
     assert _browser_url_with(monkeypatch, window) is None
 
 
+def test_a_draft_in_the_address_bar_is_not_the_pages_url(monkeypatch):
+    window, _ = _window_with(combo=_Control("test suche"))  # read off a real Firefox on a new tab
+    assert _browser_url_with(monkeypatch, window) is None
+
+
+def test_a_url_read_off_firefox_comes_back_without_the_scheme(monkeypatch):
+    window, _ = _window_with(combo=_Control("www.youtube.com/shorts/F0iPaYngwX4"))  # a real read
+    assert _browser_url_with(monkeypatch, window) == "www.youtube.com/shorts/F0iPaYngwX4"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("www.youtube.com/shorts/F0iPaYngwX4", True),
+        ("https://example.com/a%20b?q=1#x", True),
+        ("about:preferences", True),
+        ("test suche", False),
+        ("example.com/page now", False),
+        ("", False),
+        ("   ", False),
+    ],
+)
+def test_only_text_without_whitespace_can_be_a_url(text, expected):
+    assert windows.is_url_text(text) is expected
+
+
 # ------------------------------------------------------------------ input events
 
 

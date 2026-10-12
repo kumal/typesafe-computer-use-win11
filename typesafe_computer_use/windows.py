@@ -119,6 +119,13 @@ def pressable(has_invoke: bool, default_action: str) -> bool:
     return has_invoke or bool(default_action.strip())
 
 
+def is_url_text(text: str) -> bool:
+    """Whether the address bar's text can be a page's address. A URL has no whitespace (a space is
+    %20), so text with some is a draft the user is typing, not the page. The bar cannot tell a
+    one-word draft from a URL: that stays a limit of reading it off the screen."""
+    return bool(text) and not any(ch.isspace() for ch in text)
+
+
 def exe_stem(name: str) -> str:
     """`Chrome.exe`, `chrome` and ` CHROME ` are one process name."""
     stem = name.strip().lower()
@@ -394,8 +401,10 @@ def browser_url(browser: str) -> str | None:
         window = auto.ControlFromHandle(hwnd)
         for find in (window.EditControl, window.ComboBoxControl):
             bar = find(searchDepth=20, RegexName=ADDRESS_BAR_NAME)
-            if bar.Exists(0, 0) and (url := _ui_value(bar)):
-                return url
+            if bar.Exists(0, 0):
+                text = (_ui_value(bar) or "").strip()
+                if is_url_text(text):
+                    return text
         return None
     except Exception:
         return None
