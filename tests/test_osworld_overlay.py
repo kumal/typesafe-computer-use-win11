@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import bash_runs_scripts
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "osworld"
@@ -30,6 +31,8 @@ POPEN = subprocess.Popen  # the real one, before tests/conftest.py refuses it fo
 def processes(monkeypatch):
     """These tests run bash, on files only; tests/conftest.py refuses every process by default."""
     monkeypatch.setattr(subprocess, "Popen", POPEN)
+    if not bash_runs_scripts(SCRIPT):
+        pytest.skip("no bash here reads this checkout's scripts (on Windows, bash.exe may be the WSL launcher)")
 
 
 def tree(path: Path) -> ast.Module:

@@ -11,10 +11,12 @@ installed, nothing is registered for it.
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import ipaddress
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -110,6 +112,22 @@ def raw_windows_calls() -> list[tuple[object, str]]:
         *((uiautomation, name) for name in ("GetFocusedControl", "GetForegroundControl", "ControlFromHandle", "GetRootControl")),
     ]
     return [(owner, name) for owner, name in wanted if hasattr(owner, name)]
+
+
+@functools.cache
+def bash_runs_scripts(script: object) -> bool:
+    """Whether `bash` here runs a script by the path the tests give it.
+
+    False without a bash, and also where `bash` is not a POSIX shell that reads that path: on Windows the
+    first bash.exe is often the WSL launcher, which exits with an error where WSL cannot start, and wants
+    /mnt/c paths where it can. The tests for the bash scripts skip there instead of failing."""
+    if shutil.which("bash") is None:
+        return False
+    try:
+        done = subprocess.run(["bash", "-c", 'test -f "$1" && echo ok', "bash", str(script)], capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0 and done.stdout.strip() == b"ok"
 
 
 @pytest.fixture(autouse=True)
