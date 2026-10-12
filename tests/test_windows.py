@@ -300,7 +300,7 @@ def test_a_url_read_off_firefox_comes_back_without_the_scheme(monkeypatch):
 
 
 def test_a_url_with_spaces_in_its_query_is_still_the_pages_url(monkeypatch):
-    # Firefox shows the address decoded: this is the shape a real Temu page's address bar read back
+    # Firefox can show the address decoded: this is the shape a real Temu page's address bar read back
     url = "www.temu.com/?_p_rfs=1&_x_ns_iradname=Online Tracking Link&_x_ns_irmpname=Firefox Browser - adMarketplace&_x=1"
     assert _browser_url_with(monkeypatch, [_combo(url)]).url == url
 

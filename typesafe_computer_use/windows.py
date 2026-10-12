@@ -133,7 +133,7 @@ def pressable(has_invoke: bool, default_action: str) -> bool:
 
 def is_url_text(text: str) -> bool:
     """Whether the address bar's text can be a page's address and not a draft the user is typing.
-    Firefox shows the address decoded, so a %20 in a query value is a real space there: spaces occur
+    Firefox can show the address decoded, so a %20 in a query value is a real space there: spaces occur
     in a URL, but only once its host and path have begun, so the first word holds a "/", "?" or "#".
     A draft's first word does not. The bar cannot tell a one-word draft from a URL: that stays a
     limit of reading it off the screen."""
@@ -420,7 +420,7 @@ def _read_address_bar(window) -> tuple[bool, str | None]:
 def browser_url(browser: str) -> str | None:
     """The address bar's text, read through UI Automation. No AppleScript-style API exists for this
     on Windows, so it depends on the browser exposing a control named for the address bar.
-    Chrome, Edge, and Firefox show it without the scheme, and Firefox decoded.
+    Chrome, Edge, and Firefox show it without the scheme, and Firefox sometimes decoded.
 
     The first read of a process waits up to ADDRESS_BAR_WARMUP_SECONDS for a bar to appear in a
     window that has not been queried for a while; once a bar is found, even one holding only a draft,
