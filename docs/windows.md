@@ -20,7 +20,10 @@ No permission prompt is needed. What differs from macOS:
   known browser by its product name (`Google Chrome` is `chrome.exe`). Window titles never count.
 - A click reads the cursor back first, and refuses to press, ending the run, when the cursor did
   not reach the target (a UAC prompt or the lock screen has the input).
-- The browser URL is read off the address bar, which Chrome and Edge show without the scheme.
+- The browser URL is read off the address bar, which Chrome and Edge show without the scheme. The
+  bar is found by its accessible name, English or German ("Address and search bar", "Adress- und
+  Suchleiste", Firefox's "Search or enter address"); another UI language needs its name added to
+  `ADDRESS_BAR_NAME`.
 - Only the primary monitor is captured. Command-[ (back) is Alt-Left.
 - When a policy blocks the installed `clicker.exe`, run `uv run python -m typesafe_computer_use`
   with the same arguments, or `... typesafe_computer_use inspect` for `clicker-inspect`.
