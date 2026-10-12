@@ -1,6 +1,7 @@
 """The Windows adapter's pure rules. Nothing here touches Windows, so it runs everywhere."""
 
 import ctypes
+import re
 
 import pytest
 
@@ -90,6 +91,29 @@ def test_a_browser_is_reported_by_its_product_name():
     assert display_name("msedge.exe") == "Microsoft Edge"
     assert display_name("notepad.exe") == "notepad.exe"
     assert app_matches(display_name("chrome.exe"), "chrome.exe")  # what is reported can be activated
+
+
+# ------------------------------------------------------------------ the address bar
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Address and search bar",  # Chrome and Edge, English
+        "Adress- und Suchleiste",  # Chrome and Edge, German
+        "Search or enter address",  # Firefox, English
+        "Suchen oder Adresse eingeben",  # Firefox, German
+        "address and search bar",
+    ],
+)
+def test_the_address_bar_is_found_by_its_name_in_each_browser_and_language(name):
+    # uiautomation applies RegexName with re.match, so the name must match from its first character
+    assert re.match(windows.ADDRESS_BAR_NAME, name)
+
+
+@pytest.mark.parametrize("name", ["Email address", "Search", "Suchen", "Reading address book", ""])
+def test_a_field_that_only_mentions_an_address_is_not_the_address_bar(name):
+    assert not re.match(windows.ADDRESS_BAR_NAME, name)
 
 
 # ------------------------------------------------------------------ input events

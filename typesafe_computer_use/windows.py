@@ -72,6 +72,12 @@ CONTROL_TYPE_TO_ROLE = {
 # The frontmost app is reported by the same name, so the classifier sees one browser, not two.
 BROWSER_EXES = {"Google Chrome": "chrome", "Microsoft Edge": "msedge", "Firefox": "firefox", "Brave Browser": "brave"}
 
+# The address bar's accessible name, as a pattern for uiautomation's RegexName, which uses re.match: it
+# must start at the name's first character. Chrome and Edge call it "Address and search bar" ("Adress- und
+# Suchleiste" in German), Firefox "Search or enter address" ("Suchen oder Adresse eingeben"). A bare
+# "address" elsewhere in the name, as in a page's "Email address" field, is not the address bar.
+ADDRESS_BAR_NAME = r"(?i)(add?ress\b|(search or enter|suchen oder) add?ress)"
+
 # Virtual keys for the keys the actions press. macOS's Command becomes Control, except Command-[,
 # a browser's Back, which is Alt-Left on Windows.
 VK = {"return": 0x0D, "tab": 0x09, "escape": 0x1B, "a": 0x41, "delete": 0x2E, "[": 0xDB, "left": 0x25}
@@ -377,7 +383,7 @@ def browser_url(browser: str) -> str | None:
         return None
     try:
         window = auto.ControlFromHandle(hwnd)
-        edit = window.EditControl(searchDepth=20, RegexName="(?i)address")
+        edit = window.EditControl(searchDepth=20, RegexName=ADDRESS_BAR_NAME)
         if not edit.Exists(0, 0):
             return None
         return _ui_value(edit) or None
