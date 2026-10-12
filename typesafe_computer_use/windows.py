@@ -81,6 +81,14 @@ BROWSER_EXES = {"Google Chrome": "chrome", "Microsoft Edge": "msedge", "Firefox"
 # and neither is Firefox's separate search field, "Suchen".
 ADDRESS_BAR_NAME = r"(?i)(add?ress\b|.*(or enter add?resse?|oder add?resse? eingeben))"
 
+# A browser that has not been asked about its controls for a while shows no address bar for the first
+# ten seconds or so of queries (a real Firefox: four searches over 10 s found nothing, the fifth found it
+# at once), so the first read in a process waits for it. Later reads search once: the process stays a
+# client, and a window without a recognised bar must not cost this on every step.
+ADDRESS_BAR_WARMUP_SECONDS = 12.0
+ADDRESS_BAR_RETRY_SECONDS = 0.5
+_bar_warmup_spent = False
+
 # Virtual keys for the keys the actions press. macOS's Command becomes Control, except Command-[,
 # a browser's Back, which is Alt-Left on Windows.
 VK = {"return": 0x0D, "tab": 0x09, "escape": 0x1B, "a": 0x41, "delete": 0x2E, "[": 0xDB, "left": 0x25}
@@ -393,24 +401,47 @@ def open_url(browser: str, url: str) -> bool:
     return activate(browser)
 
 
+def _read_address_bar(window) -> tuple[bool, str | None]:
+    """One search of a browser window: whether an address bar was found, and its text when that
+    can be a page's URL. An Edit in Chrome and Edge, a combo box in Firefox."""
+    found = False
+    for find in (window.EditControl, window.ComboBoxControl):
+        bar = find(searchDepth=20, RegexName=ADDRESS_BAR_NAME)
+        if bar.Exists(0, 0):
+            found = True
+            text = (_ui_value(bar) or "").strip()
+            if is_url_text(text):
+                return True, text
+    return found, None
+
+
 def browser_url(browser: str) -> str | None:
     """The address bar's text, read through UI Automation. No AppleScript-style API exists for this
-    on Windows, so it depends on the browser exposing a control named for the address bar: an Edit
-    in Chrome and Edge, a combo box in Firefox. Chrome and Edge show it without the scheme."""
+    on Windows, so it depends on the browser exposing a control named for the address bar.
+    Chrome, Edge, and Firefox show it without the scheme, and Firefox decoded.
+
+    The first read of a process waits up to ADDRESS_BAR_WARMUP_SECONDS for a bar to appear in a
+    window that has not been queried for a while; once a bar is found, even one holding only a draft,
+    it stops waiting. Without a browser window nothing is waited for and the wait is not used up."""
+    global _bar_warmup_spent
     hwnd = _find_window(browser)
     if hwnd is None:
         return None
+    patience = 0.0 if _bar_warmup_spent else ADDRESS_BAR_WARMUP_SECONDS
+    _bar_warmup_spent = True
+    deadline = time.monotonic() + patience
     try:
         window = auto.ControlFromHandle(hwnd)
-        for find in (window.EditControl, window.ComboBoxControl):
-            bar = find(searchDepth=20, RegexName=ADDRESS_BAR_NAME)
-            if bar.Exists(0, 0):
-                text = (_ui_value(bar) or "").strip()
-                if is_url_text(text):
-                    return text
-        return None
     except Exception:
         return None
+    while True:
+        try:
+            found, url = _read_address_bar(window)
+        except Exception:
+            return None
+        if found or time.monotonic() >= deadline:
+            return url
+        sleep_watching(ADDRESS_BAR_RETRY_SECONDS)  # the escape hatch works while it waits
 
 
 def open_path(path: Path, as_text: bool = False) -> None:

@@ -27,6 +27,10 @@ No permission prompt is needed. What differs from macOS:
   ("Address and search bar", "Adress- und Suchleiste", Firefox's "Search with Google or enter
   address" and "Mit Google suchen oder Adresse eingeben"), as an Edit control in Chrome and Edge
   and as a combo box in Firefox. Another UI language needs its name added to `ADDRESS_BAR_NAME`.
+  A browser that has not been queried for a while shows no address bar for its first ten seconds or
+  so, so the first read in a process waits up to 12 seconds for it (a real Firefox needed about
+  ten); later reads search once. The first step of a run is slower for it, and a browser window
+  without a recognised bar costs that wait once, never again.
 - Only the primary monitor is captured. Command-[ (back) is Alt-Left.
 - When a policy blocks the installed `clicker.exe`, run `uv run python -m typesafe_computer_use`
   with the same arguments, or `... typesafe_computer_use inspect` for `clicker-inspect`.

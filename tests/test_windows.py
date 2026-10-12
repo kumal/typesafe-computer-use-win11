@@ -144,11 +144,40 @@ def _window_with(edit=None, combo=None):
     return window, asked
 
 
-def _browser_url_with(monkeypatch, window):
+def _browser_url_with(monkeypatch, window, first_read=False):
+    """windows.browser_url against a fake window. By default the process has read once already, so
+    the read searches once; `first_read` is the process's first, which waits for the bar."""
     monkeypatch.setattr(windows, "_find_window", lambda app: 1)
     monkeypatch.setattr(windows, "auto", SimpleNamespace(ControlFromHandle=lambda hwnd: window))
     monkeypatch.setattr(windows, "_ui_value", lambda control: control.value)
+    monkeypatch.setattr(windows, "_bar_warmup_spent", not first_read)
     return windows.browser_url("Firefox")
+
+
+class _Clock:
+    """A clock the wait runs on instead of the real one: sleeping moves it, nothing waits."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class _AppearsLater(_Control):
+    """A bar that a cold browser shows only from the n-th search on."""
+
+    def __init__(self, value, after):
+        super().__init__(value)
+        self.after = after
+        self.searches = 0
+
+    def Exists(self, *_):
+        self.searches += 1
+        return self.searches > self.after
 
 
 def test_the_url_comes_from_an_edit_in_chrome_and_edge(monkeypatch):
@@ -171,6 +200,66 @@ def test_no_address_bar_has_no_url(monkeypatch):
 def test_an_address_bar_without_a_value_has_no_url(monkeypatch):
     window, _ = _window_with(edit=_Control(""), combo=_Control(""))
     assert _browser_url_with(monkeypatch, window) is None
+
+
+def test_the_first_read_waits_for_a_cold_browser_to_show_its_address_bar(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(windows, "time", clock)
+    bar = _AppearsLater("www.temu.com/ch/stuhl", after=3)  # nothing for three searches, then there
+    window, _ = _window_with(combo=bar)
+    assert _browser_url_with(monkeypatch, window, first_read=True) == "www.temu.com/ch/stuhl"
+    assert bar.searches == 4
+    assert 0 < clock.now < windows.ADDRESS_BAR_WARMUP_SECONDS  # it waited, and stopped when it saw the bar
+
+
+def test_a_first_read_that_never_sees_a_bar_gives_up_after_the_warmup(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(windows, "time", clock)
+    window, _ = _window_with()
+    assert _browser_url_with(monkeypatch, window, first_read=True) is None
+    assert windows.ADDRESS_BAR_WARMUP_SECONDS <= clock.now < windows.ADDRESS_BAR_WARMUP_SECONDS + 1
+
+
+def test_the_wait_is_spent_once_per_process(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(windows, "time", clock)
+    window, _ = _window_with()
+    assert _browser_url_with(monkeypatch, window, first_read=True) is None
+    spent = clock.now
+    assert windows.browser_url("Firefox") is None  # a window with no recognised bar, a second time
+    assert clock.now == spent  # one search, no waiting
+
+
+def test_a_bar_found_at_once_is_read_without_waiting(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(windows, "time", clock)
+    window, _ = _window_with(combo=_Control("example.com/page"))
+    assert _browser_url_with(monkeypatch, window, first_read=True) == "example.com/page"
+    assert clock.now == 0.0
+
+
+def test_a_draft_in_a_found_bar_is_not_waited_for(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(windows, "time", clock)
+    window, _ = _window_with(combo=_Control("test suche"))
+    assert _browser_url_with(monkeypatch, window, first_read=True) is None
+    assert clock.now == 0.0  # the bar was there; its text just is not an address
+
+
+def test_no_browser_window_uses_up_no_wait(monkeypatch):
+    monkeypatch.setattr(windows, "_find_window", lambda app: None)
+    monkeypatch.setattr(windows, "_bar_warmup_spent", False)
+    assert windows.browser_url("Firefox") is None
+    assert windows._bar_warmup_spent is False  # the first window that does exist still gets it
+
+
+def test_the_escape_hatch_works_while_the_first_read_waits(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(windows, "time", clock)
+    monkeypatch.setattr(windows, "mouse_location", lambda: (0.0, 0.0))  # the abort corner
+    window, _ = _window_with()
+    with pytest.raises(windows.Abort):
+        _browser_url_with(monkeypatch, window, first_read=True)
 
 
 def test_a_draft_in_the_address_bar_is_not_the_pages_url(monkeypatch):
