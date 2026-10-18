@@ -14,6 +14,7 @@ from __future__ import annotations
 import ctypes
 import functools
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -45,6 +46,7 @@ LINES_PER_NOTCH = 3  # the Windows default; the actions ask for lines, as on mac
 
 # Windows.Media.Ocr reads one language per engine and reports no confidence, so every line it returns
 # counts as certain and passes MIN_OCR_CONFIDENCE. The language pack must be installed (see docs/windows.md).
+# OCR_LANGUAGE is the default; CLICKER_OCR_LANGUAGE names another (see ocr_language).
 OCR_LANGUAGE = "en"
 OCR_CONFIDENCE = 1.0
 
@@ -72,6 +74,25 @@ CONTROL_TYPE_TO_ROLE = {
 # The frontmost app is reported by the same name, so the classifier sees one browser, not two.
 BROWSER_EXES = {"Google Chrome": "chrome", "Microsoft Edge": "msedge", "Firefox": "firefox", "Brave Browser": "brave"}
 
+# The address bar's accessible name, as a pattern for uiautomation's RegexName, which uses re.match: it
+# must start at the name's first character. Chrome and Edge call it "Address and search bar" ("Adress- und
+# Suchleiste" in German). Firefox puts its search engine in the middle: "Search with Google or enter
+# address", in German "Mit Google suchen oder Adresse eingeben" (the latter read off a real Firefox).
+# A bare "address" elsewhere in the name, as in a page's "Email address" field, is not the address bar,
+# and neither is Firefox's separate search field, "Suchen".
+ADDRESS_BAR_NAME = r"(?i)(add?ress\b|.*(or enter add?resse?|oder add?resse? eingeben))"
+_ADDRESS_BAR = re.compile(ADDRESS_BAR_NAME)
+ADDRESS_BAR_CONTROLS = ("EditControl", "ComboBoxControl")  # Chrome and Edge, Firefox
+ADDRESS_BAR_SEARCH_DEPTH = 20  # Firefox's bar sits at depth 3, below its window and toolbar
+
+# A browser that has not been asked about its controls for a while shows no address bar for the first
+# ten seconds or so of queries (a real Firefox: four searches over 10 s found nothing, the fifth found it
+# at once), so the first read in a process waits for it. Later reads search once: the process stays a
+# client, and a window without a recognised bar must not cost this on every step.
+ADDRESS_BAR_WARMUP_SECONDS = 12.0
+ADDRESS_BAR_RETRY_SECONDS = 0.5
+_bar_warmup_spent = False
+
 # Virtual keys for the keys the actions press. macOS's Command becomes Control, except Command-[,
 # a browser's Back, which is Alt-Left on Windows.
 VK = {"return": 0x0D, "tab": 0x09, "escape": 0x1B, "a": 0x41, "delete": 0x2E, "[": 0xDB, "left": 0x25}
@@ -93,6 +114,12 @@ MOUSEEVENTF_WHEEL = 0x0800
 # ------------------------------------------------------------------ pure rules
 
 
+def ocr_language() -> str:
+    """The language tag OCR reads in: CLICKER_OCR_LANGUAGE, or OCR_LANGUAGE when it is unset or blank.
+    Read at each call, as config.browser() does, so a .env loaded after import still counts."""
+    return os.environ.get("CLICKER_OCR_LANGUAGE", "").strip() or OCR_LANGUAGE
+
+
 def role_for(control_type_name: str) -> str:
     """The AX role a UI Automation control type stands for, or "" for one the walk ignores."""
     return CONTROL_TYPE_TO_ROLE.get(control_type_name, "")
@@ -102,6 +129,16 @@ def pressable(has_invoke: bool, default_action: str) -> bool:
     """Whether an element accepts a press. Almost every element carries the LegacyIAccessible
     pattern, so that pattern alone says nothing; only a named default action makes it a control."""
     return has_invoke or bool(default_action.strip())
+
+
+def is_url_text(text: str) -> bool:
+    """Whether the address bar's text can be a page's address and not a draft the user is typing.
+    Firefox can show the address decoded, so a %20 in a query value is a real space there: spaces occur
+    in a URL, but only once its host and path have begun, so the first word holds a "/", "?" or "#".
+    A draft's first word does not. The bar cannot tell a one-word draft from a URL: that stays a
+    limit of reading it off the screen."""
+    words = text.split()
+    return bool(words) and (len(words) == 1 or any(ch in words[0] for ch in "/?#"))
 
 
 def exe_stem(name: str) -> str:
@@ -368,21 +405,45 @@ def open_url(browser: str, url: str) -> bool:
     return activate(browser)
 
 
+def _read_address_bar(window) -> tuple[bool, str | None]:
+    """One walk of a browser window: whether an address bar was found, and its text when that can
+    be a page's URL. It stops at the first Edit or combo box named like the bar, which the browser's
+    toolbar puts ahead of the page: a search per control type would walk a whole page (a few
+    seconds) for the type the browser does not use."""
+    for control, _ in auto.WalkControl(window, maxDepth=ADDRESS_BAR_SEARCH_DEPTH):
+        if control.ControlTypeName in ADDRESS_BAR_CONTROLS and _ADDRESS_BAR.match(control.Name or ""):
+            text = (_ui_value(control) or "").strip()
+            return True, text if is_url_text(text) else None
+    return False, None
+
+
 def browser_url(browser: str) -> str | None:
     """The address bar's text, read through UI Automation. No AppleScript-style API exists for this
-    on Windows, so it depends on the browser exposing an Edit control named for the address bar,
-    which Chrome, Edge, and Firefox do. Chrome and Edge show it without the scheme."""
+    on Windows, so it depends on the browser exposing a control named for the address bar.
+    Chrome, Edge, and Firefox show it without the scheme, and Firefox sometimes decoded.
+
+    The first read of a process waits up to ADDRESS_BAR_WARMUP_SECONDS for a bar to appear in a
+    window that has not been queried for a while; once a bar is found, even one holding only a draft,
+    it stops waiting. Without a browser window nothing is waited for and the wait is not used up."""
+    global _bar_warmup_spent
     hwnd = _find_window(browser)
     if hwnd is None:
         return None
+    patience = 0.0 if _bar_warmup_spent else ADDRESS_BAR_WARMUP_SECONDS
+    _bar_warmup_spent = True
+    deadline = time.monotonic() + patience
     try:
         window = auto.ControlFromHandle(hwnd)
-        edit = window.EditControl(searchDepth=20, RegexName="(?i)address")
-        if not edit.Exists(0, 0):
-            return None
-        return _ui_value(edit) or None
     except Exception:
         return None
+    while True:
+        try:
+            found, url = _read_address_bar(window)
+        except Exception:
+            return None
+        if found or time.monotonic() >= deadline:
+            return url
+        sleep_watching(ADDRESS_BAR_RETRY_SECONDS)  # the escape hatch works while it waits
 
 
 def open_path(path: Path, as_text: bool = False) -> None:
@@ -431,7 +492,7 @@ def display_scale(image: Image.Image) -> float:
 
 def recognize_text(image: Image.Image) -> list[tuple[str, float, tuple[float, float, float, float]]]:
     """Windows.Media.Ocr lines as text, confidence, and a box in the image's own pixels."""
-    return ocr_lines(winocr.recognize_pil_sync(image, OCR_LANGUAGE))
+    return ocr_lines(winocr.recognize_pil_sync(image, ocr_language()))
 
 
 def _pattern(element, pattern_id):

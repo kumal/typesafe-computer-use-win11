@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 import pytest
+from conftest import bash_runs_scripts
 
 ROOT = Path(__file__).resolve().parent.parent
 OSWORLD = ROOT / "scripts" / "osworld"
@@ -20,13 +21,13 @@ OSWORLD_GCP = ROOT / "scripts" / "osworld-gcp"
 
 POPEN = subprocess.Popen  # the real one, before tests/conftest.py refuses it for every test
 
-pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="the scripts are bash")
-
 
 @pytest.fixture(autouse=True)
 def processes(monkeypatch):
     """These tests run bash on files only; tests/conftest.py refuses every process by default."""
     monkeypatch.setattr(subprocess, "Popen", POPEN)
+    if not bash_runs_scripts(OSWORLD):
+        pytest.skip("no bash here reads this checkout's scripts (on Windows, bash.exe may be the WSL launcher)")
 
 
 def function(script: Path, name: str) -> str:

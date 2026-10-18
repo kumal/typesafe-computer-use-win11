@@ -6,6 +6,7 @@ import pytest
 
 from typesafe_computer_use import actions, macos
 from typesafe_computer_use.models import Abort
+from typesafe_computer_use.platform_adapter import desktop
 
 
 @pytest.fixture
@@ -85,8 +86,9 @@ def test_corner_abort_stops_an_app_switch_before_any_applescript(action, monkeyp
 
 
 def test_pending_abort_after_a_decision_prevents_dispatch(screen, monkeypatch):
-    monkeypatch.setattr(macos, "mouse_location", lambda: (0, 0))
-    monkeypatch.setattr(macos, "press", lambda *a: pytest.fail("must not submit after abort"))
+    # through `desktop`, so it is the adapter of the OS the suite runs on that the action meets
+    monkeypatch.setattr(desktop, "mouse_location", lambda: (0, 0))
+    monkeypatch.setattr(desktop, "press", lambda *a: pytest.fail("must not submit after abort"))
     with pytest.raises(Abort):
         actions.perform(SimpleNamespace(chosen="press_enter"), screen, [], None)
 

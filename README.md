@@ -6,12 +6,12 @@
   <a href="https://github.com/awlevin/typesafe-computer-use/actions/workflows/ci.yaml"><img alt="CI" src="https://github.com/awlevin/typesafe-computer-use/actions/workflows/ci.yaml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white">
-  <img alt="macOS, Windows experimental" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20(experimental)-000000">
+  <img alt="Windows 11, experimental" src="https://img.shields.io/badge/platform-Windows%2011%20(experimental)-0078D4">
   <a href="https://docs.typesafe.ai"><img alt="TypeSafe" src="https://img.shields.io/badge/decisions-TypeSafe%20jev-8b5cf6"></a>
   <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
 </p>
 
-**typesafe-computer-use** (jev for short) drives a Mac toward a goal you type in plain English,
+**typesafe-computer-use** (jev for short) drives a Windows 11 PC toward a goal you type in plain English,
 for about a fiftieth of a cent per step. It reads the screen deterministically, asks a small
 classifier which action comes next, and only calls a writing model when a text field genuinely
 needs free text or the classifier has stopped and the screen needs reading.
@@ -56,14 +56,18 @@ unaided. The classifier needed the date parsing described in
 [how a step works](docs/how-a-step-works.md). Every piece of reasoning the frontier model
 does for free has to be rebuilt here as deterministic state.
 
+> **Windows 11 fork** of [awlevin/typesafe-computer-use](https://github.com/awlevin/typesafe-computer-use).
+> The macOS adapter (`macos.py`) is still in the tree to ease merging upstream, but this fork
+> targets Windows only.
+
 ## Install
 
-macOS 14 or newer, Python 3.12 or newer, [uv](https://docs.astral.sh/uv/). Windows 10 and 11
-are experimental; see [Windows](docs/windows.md).
+Windows 11, Python 3.12 or newer, [uv](https://docs.astral.sh/uv/). The Windows adapter is
+experimental and untested on real hardware so far; see [Windows](docs/windows.md).
 
 ```
-git clone https://github.com/awlevin/typesafe-computer-use
-cd typesafe-computer-use
+git clone https://github.com/kumal/typesafe-computer-use-win11
+cd typesafe-computer-use-win11
 uv sync
 cp .env.example .env     # fill in the keys
 ```

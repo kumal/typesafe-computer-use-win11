@@ -5,7 +5,7 @@ typesafe_computer_use/
   platform_adapter.py
                   `desktop`, the one way to the platform: windows.py on Windows,
                   macos.py everywhere else; `Desktop` names what both provide
-  macos.py        the macOS adapter: Quartz, AX, AppleScript, Vision OCR
+  macos.py        the macOS adapter, kept only to ease merging upstream; this fork targets Windows: Quartz, AX, AppleScript, Vision OCR
   windows.py      the Windows adapter (experimental): UI Automation, SendInput,
                   Windows.Media.Ocr
   ax_walk.py      the bounded accessibility-tree walk, shared by both adapters

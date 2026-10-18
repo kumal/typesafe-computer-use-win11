@@ -4,7 +4,7 @@ Read [VISION.md](VISION.md) first: what jev is for, in a dozen lines. Weigh ever
 against it.
 
 This tool drives a real computer. When you work on it, you are almost always on the
-maintainer's own Mac, often while they are using it.
+maintainer's own Windows 11 PC, often while they are using it.
 
 ## Never take over the machine without explicit approval
 

@@ -11,15 +11,18 @@ installed, nothing is registered for it.
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import ipaddress
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
 import threading
 import types
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,6 +48,7 @@ def _stub(name: str) -> types.ModuleType:
 
 
 REAL_ACCESSIBILITY = not _absent("ApplicationServices")
+REAL_WINDOWS = not any(_absent(name) for name in ("uiautomation", "win32api", "win32gui"))  # before the stubs below
 
 if _absent("Quartz"):
     _stub("Quartz").kCGHIDEventTap = 0
@@ -65,11 +69,65 @@ for _windows_module in ("psutil", "uiautomation", "win32api", "win32con", "win32
         _stub(_windows_module)
 
 import pytest  # noqa: E402
-from PIL import Image  # noqa: E402
+from PIL import Image, ImageGrab  # noqa: E402
 
 from typesafe_computer_use import macos, windows  # noqa: E402
 from typesafe_computer_use.browser import cdp  # noqa: E402
 from typesafe_computer_use.models import Item, Screen  # noqa: E402
+
+WEBBROWSER_CALLS = ("open", "open_new", "open_new_tab")
+# What starts a program or opens a file other than through subprocess, which is refused as a whole.
+OS_LAUNCHES = (
+    "system",
+    "startfile",
+    "posix_spawn",
+    "posix_spawnp",
+    *(f"spawn{kind}" for kind in ("l", "le", "lp", "lpe", "v", "ve", "vp", "vpe")),
+)
+
+
+def raw_windows_calls() -> list[tuple[object, str]]:
+    """The Windows calls, below windows.py's own functions, that act on the machine or read its live
+    desktop: input, focus, and launching, then the reads of the foreground window and the UI Automation
+    tree. A test that patches the adapter's function, or `windows.auto` as a whole, never meets them."""
+    import uiautomation
+    import win32api
+    import win32gui
+
+    wanted = [
+        (win32api, "SetCursorPos"),
+        (win32api, "mouse_event"),
+        (win32api, "keybd_event"),
+        (win32gui, "SetForegroundWindow"),
+        (win32gui, "ShowWindow"),
+        (win32gui, "SetFocus"),
+        *((uiautomation, name) for name in ("SendKeys", "SendKey", "Click", "RightClick", "MiddleClick", "MoveTo")),
+        *((uiautomation, name) for name in ("DragDrop", "WheelDown", "WheelUp")),
+        (uiautomation.Control, "SetFocus"),
+        (uiautomation.InvokePattern, "Invoke"),
+        (uiautomation.ValuePattern, "SetValue"),
+        (uiautomation.LegacyIAccessiblePattern, "DoDefaultAction"),
+        (win32gui, "GetForegroundWindow"),
+        (win32gui, "EnumWindows"),
+        *((uiautomation, name) for name in ("GetFocusedControl", "GetForegroundControl", "ControlFromHandle", "GetRootControl")),
+    ]
+    return [(owner, name) for owner, name in wanted if hasattr(owner, name)]
+
+
+@functools.cache
+def bash_runs_scripts(script: object) -> bool:
+    """Whether `bash` here runs a script by the path the tests give it.
+
+    False without a bash, and also where `bash` is not a POSIX shell that reads that path: on Windows the
+    first bash.exe is often the WSL launcher, which exits with an error where WSL cannot start, and wants
+    /mnt/c paths where it can. The tests for the bash scripts skip there instead of failing."""
+    if shutil.which("bash") is None:
+        return False
+    try:
+        done = subprocess.run(["bash", "-c", 'test -f "$1" && echo ok', "bash", str(script)], capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0 and done.stdout.strip() == b"ok"
 
 
 @pytest.fixture(autouse=True)
@@ -100,11 +158,19 @@ def no_real_machine(monkeypatch):
     for name in ("_send", "_move", "screenshot", "activate", "open_url", "open_path", "ax_press", "ax_focus", "ax_set_value"):
         monkeypatch.setattr(windows, name, refuse(f"windows.{name}"))
     monkeypatch.setattr(windows, "mouse_location", lambda: (500.0, 500.0))
+    # Below those: a call that goes around the adapter's own functions reaches the same machine.
+    monkeypatch.setattr(windows, "_user32", refuse("windows._user32 (SendInput)"))
+    monkeypatch.setattr(ImageGrab, "grab", refuse("ImageGrab.grab"))
+    for name in WEBBROWSER_CALLS:
+        monkeypatch.setattr(webbrowser, name, refuse(f"webbrowser.{name}"))
+    if REAL_WINDOWS:
+        for module, name in raw_windows_calls():
+            monkeypatch.setattr(module, name, refuse(f"{module.__name__}.{name}"))
 
     # The browser backend: no Chrome and no process of any kind, nothing over CDP, and no
     # connection except to a server on this machine that the test started itself.
     monkeypatch.setattr(subprocess, "Popen", refuse("subprocess.Popen"))
-    for name in ("system", "posix_spawn", "posix_spawnp"):
+    for name in OS_LAUNCHES:
         if hasattr(os, name):
             monkeypatch.setattr(os, name, refuse(f"os.{name}"))
     monkeypatch.setattr(cdp, "find_chrome", refuse("cdp.find_chrome"))
