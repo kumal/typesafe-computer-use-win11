@@ -149,6 +149,10 @@ Fertig ist eine Änderung, wenn `ruff check`, `ruff format --check` und `pytest 
 
 ## 10. Ausblick (nur auf ausdrücklichen Auftrag)
 
+**Stand 19.10.2026:** Der Nutzer hat entschieden, Computer Use als eigenen C#-Kern in seinem Projekt AgentHub (`C:\DEV\VSCode\AgentHub`, Ordner `computer-use/`, Branch `feature/computer-use-core`) zu bauen, Windows zuerst, ohne MCP und ohne Unterprozess. Die Logik von Decider, Aktionen, Runner und Wahrnehmung sowie die Szenarien aus `tests/world.py` sind dorthin portiert (MIT, Urheber awlevin, Hinweis in `NOTICE.md` dort). Dieser Fork bleibt Referenz und Testvorlage. Änderungen hier ändern den C#-Kern nicht von selbst: Eine Verhaltensänderung im Fork (zum Beispiel die Verlaufszeilen in `actions.py`, die der Runner auswertet) muss bei Bedarf dort nachgezogen werden. Ein Abgleich mit dem Upstream ist für den C#-Kern nicht nötig.
+
+Ältere Notiz (überholt):
+
 - Einbindung als Werkzeug: entweder als Unterprozess (`clicker "<goal>" --act`, Ergebnis aus `runs/<Zeitstempel>/run.json`) oder als kleiner MCP-Server in Python mit einem Tool `computer_use(goal)`.
 - Eigene App: Favorit ist Avalonia (C#/.NET) mit einem UI-freien Core, der als MCP-Host Server startet und deren Tools dem Modell anbietet. Der Nutzer lehnt Electron ab, und Tauri nutzt ebenfalls eine Webview. Cua wird nicht verwendet.
 - Nichts davon ohne Auftrag beginnen und nichts in diesem Repo darauf vorbereiten.
